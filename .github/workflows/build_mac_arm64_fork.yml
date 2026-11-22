@@ -1,0 +1,19 @@
+name: Build macOS arm64 (fork)
+
+# Builds only the Apple Silicon app for this branch, instead of every platform that
+# build_all.yml covers. The app bundle is uploaded as the artifact
+# OrcaSlicer_Mac_bundle_arm64_<sha> (unsigned; for local testing).
+
+on:
+  push:
+    branches:
+      - p2s-liveview-fallback
+  workflow_dispatch:
+
+jobs:
+  build_macos_arm64:
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: macos-15
+      arch: arm64
+    secrets: inherit

@@ -303,6 +303,7 @@ void MediaPlayCtrl::SetMachineObject(MachineObject* obj)
         m_machine = machine;
         BOOST_LOG_TRIVIAL(info) << "MediaPlayCtrl switch machine: " << m_machine;
         m_disable_lan = false;
+        m_remote_refused = false;
         m_failed_retry = 0;
         m_last_failed_codes.clear();
         m_last_user_play = wxDateTime::Now();
@@ -469,10 +470,11 @@ void MediaPlayCtrl::Play()
         return;
     }
 
-    BOOST_LOG_TRIVIAL(info) << "MediaPlayCtrl::Play: " << m_lan_proto << m_remote_proto << m_disable_lan;
+    BOOST_LOG_TRIVIAL(info) << "MediaPlayCtrl::Play: " << m_lan_proto << m_remote_proto << m_disable_lan
+                            << " remote_refused=" << m_remote_refused << " lan_ip_known=" << !m_lan_ip.empty();
     std::string  agent_version = agent ? agent->get_version() : "";
-    if (m_lan_proto > LiveviewLocal::LVL_Disable && (m_lan_mode || !m_remote_proto) && !m_disable_lan && !m_lan_ip.empty()) {
-        m_disable_lan = m_remote_proto && !m_lan_mode; // try remote next time
+    if (m_lan_proto > LiveviewLocal::LVL_Disable && (m_lan_mode || !m_remote_proto || m_remote_refused) && !m_disable_lan && !m_lan_ip.empty()) {
+        m_disable_lan = m_remote_proto && !m_lan_mode && !m_remote_refused; // try remote next time
         std::string url;
         if (m_lan_proto == LiveviewLocal::LVL_Local)
             url = "bambu:///local/" + m_lan_ip + ".?port=6000&user=" + m_lan_user + "&passwd=" + m_lan_passwd;
@@ -504,6 +506,14 @@ void MediaPlayCtrl::Play()
         Stop(m_lan_proto == LiveviewLocal::LVL_None
             ? _L("A problem occurred. Please update the printer firmware and try again.")
             : _L("LAN Only Liveview is off. Please turn on the liveview on printer screen."));
+        return;
+    }
+
+    if (m_remote_refused) {
+        // The cloud will not give Orca a ticket, and the local branch above was not usable.
+        Stop(m_lan_proto <= LiveviewLocal::LVL_Disable
+            ? _L("Bambu cloud refused liveview for this slicer. Turn on LAN Only Liveview on the printer screen to watch over your local network.")
+            : _L("Bambu cloud refused liveview for this slicer, and the printer was not found on the local network."));
         return;
     }
 
@@ -553,6 +563,17 @@ void MediaPlayCtrl::Play()
                             size_t n = url.find_last_of('[');
                             if (n != std::string::npos)
                                 m_failed_code = std::atoi(url.substr(n + 1, url.length() - n - 2).c_str());
+                        }
+                        if (m_failed_code == 403 && !m_lan_mode) {
+                            // Refused by policy, not a network error: retrying the cloud cannot
+                            // succeed. Replay now; Play() takes the local stream or explains why not.
+                            BOOST_LOG_TRIVIAL(info) << "MediaPlayCtrl: cloud refused liveview ticket (403), falling back to local stream";
+                            m_remote_refused = true;
+                            m_failed_code    = 0;
+                            m_last_state     = MEDIASTATE_IDLE;
+                            m_next_retry     = wxDateTime();
+                            Play();
+                            return;
                         }
                         Stop(_L("Connection Failed. Please check the network and try again"), from_u8(url));
                     } else {
@@ -810,7 +831,7 @@ void MediaPlayCtrl::ToggleStream()
             wxGetApp().app_config->set("not_show_vcamera_stop_prev", "1");
         if (res == wxID_CANCEL) return;
     }
-    if (m_lan_proto > LiveviewLocal::LVL_Disable && (m_lan_mode || !m_remote_proto) && !m_disable_lan && !m_lan_ip.empty()) {
+    if (m_lan_proto > LiveviewLocal::LVL_Disable && (m_lan_mode || !m_remote_proto || m_remote_refused) && !m_disable_lan && !m_lan_ip.empty()) {
         std::string url;
         if (m_lan_proto == LiveviewLocal::LVL_Local)
             url = "bambu:///local/" + m_lan_ip + ".?port=6000&user=" + m_lan_user + "&passwd=" + m_lan_passwd;

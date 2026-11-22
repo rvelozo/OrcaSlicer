@@ -123,6 +123,10 @@ private:
     int m_remote_proto = 0;
     bool m_device_busy = false;
     bool m_disable_lan = false;
+    // Bambu's cloud refused this machine's liveview ticket (HTTP 403). It does this to
+    // third-party slicers for some printers (e.g. P2S) whatever plug-in is loaded, so from
+    // then on prefer the printer's local stream instead of retrying the cloud.
+    bool m_remote_refused = false;
     wxString m_url;
 
     struct MediaTask {
